@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Controls</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="controls-page">
+    <main>
+      <section id="tab-songs" class="tab-panel active" data-tab="songs">
+        <input id="song-search" type="search" placeholder="Search songs" autocomplete="off" enterkeyhint="search" />
+        <ul id="video-list"></ul>
+        <p id="list-status" class="muted"></p>
+      </section>
+      <section id="tab-queue" class="tab-panel" data-tab="queue" hidden>
+        <ul id="queue-list"></ul>
+        <p id="queue-status" class="muted"></p>
+      </section>
+      <section id="tab-controls" class="tab-panel" data-tab="controls" hidden>
+        <header class="now-bar">
+          <p class="label">Now playing</p>
+          <h2 id="now-playing">Nothing playing</h2>
+          <p id="status" class="muted"></p>
+        </header>
+        <section class="transport">
+          <span class="label">Playback</span>
+          <div class="track-row">
+            <button id="pause-btn" class="action" type="button" disabled>Pause</button>
+            <button id="resume-btn" class="action" type="button" disabled>Resume</button>
+            <button id="next-btn" class="action" type="button">Next</button>
+          </div>
+        </section>
+        <section class="transport">
+          <span class="label">Sound track</span>
+          <div id="tracks" class="track-row"></div>
+        </section>
+      </section>
+    </main>
+    <nav class="tabbar" aria-label="Controls sections">
+      <button type="button" class="tab active" data-tab="songs">Songs</button>
+      <button type="button" class="tab" data-tab="queue">Queue <span id="queue-count"></span></button>
+      <button type="button" class="tab" data-tab="controls">Controls</button>
+    </nav>
+    <script src="/static/controls.js"></script>
+  </body>
+</html>
