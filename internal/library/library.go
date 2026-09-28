@@ -88,37 +88,76 @@ func (s Song) displayName() string {
 	return s.Singer + " - " + s.Song
 }
 
-func (c *Catalog) Search(query string) ([]Song, error) {
+const PageSize = 20
+
+type Page struct {
+	Songs  []Song `json:"songs"`
+	Total  int    `json:"total"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+}
+
+func (c *Catalog) Search(query string, limit, offset int) (Page, error) {
+	if limit <= 0 {
+		limit = PageSize
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	if offset < 0 {
+		offset = 0
+	}
 	query = strings.TrimSpace(query)
+	page := Page{Songs: []Song{}, Limit: limit, Offset: offset}
+
 	var (
-		rows *sql.Rows
-		err  error
+		total int
+		rows  *sql.Rows
+		err   error
 	)
 	if query == "" {
-		rows, err = c.db.Query(`SELECT singer, song, language, style, path FROM songs ORDER BY singer, song`)
+		err = c.db.QueryRow(`SELECT COUNT(*) FROM songs`).Scan(&total)
+		if err != nil {
+			return Page{}, err
+		}
+		rows, err = c.db.Query(`
+			SELECT singer, song, language, style, path
+			FROM songs
+			ORDER BY singer, song
+			LIMIT ? OFFSET ?`, limit, offset)
 	} else {
 		pat := likeContains(query)
+		err = c.db.QueryRow(`
+			SELECT COUNT(*) FROM songs
+			WHERE singer LIKE ? ESCAPE '\' OR song LIKE ? ESCAPE '\'`, pat, pat).Scan(&total)
+		if err != nil {
+			return Page{}, err
+		}
 		rows, err = c.db.Query(`
 			SELECT singer, song, language, style, path
 			FROM songs
 			WHERE singer LIKE ? ESCAPE '\' OR song LIKE ? ESCAPE '\'
-			ORDER BY singer, song`, pat, pat)
+			ORDER BY singer, song
+			LIMIT ? OFFSET ?`, pat, pat, limit, offset)
 	}
 	if err != nil {
-		return nil, err
+		return Page{}, err
 	}
 	defer rows.Close()
 
-	out := []Song{}
 	for rows.Next() {
 		var s Song
 		if err := rows.Scan(&s.Singer, &s.Song, &s.Language, &s.Style, &s.Path); err != nil {
-			return nil, err
+			return Page{}, err
 		}
 		s.Name = s.displayName()
-		out = append(out, s)
+		page.Songs = append(page.Songs, s)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return Page{}, err
+	}
+	page.Total = total
+	return page, nil
 }
 
 func (c *Catalog) ByPath(rel string) (Song, bool) {

@@ -174,9 +174,10 @@ function playbackStatus(result) {
 }
 
 async function loadVideos() {
-  const res = await fetch("/api/videos");
+  const res = await fetch("/api/videos?limit=20");
   if (!res.ok) throw new Error(await res.text());
-  videos = await res.json();
+  const page = await res.json();
+  videos = Array.isArray(page.songs) ? page.songs : [];
 }
 
 function defaultTrack(video) {

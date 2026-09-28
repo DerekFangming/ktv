@@ -1,6 +1,7 @@
 package library
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -65,25 +66,25 @@ func TestScanSkipsInvalidAndDuplicates(t *testing.T) {
 		t.Fatalf("second scan: %+v", second)
 	}
 
-	all, err := cat.Search("")
+	all, err := cat.Search("", 0, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 2 {
-		t.Fatalf("stored %d songs", len(all))
+	if all.Total != 2 || len(all.Songs) != 2 || all.Limit != PageSize {
+		t.Fatalf("stored %+v", all)
 	}
-	found, err := cat.Search("女儿")
+	found, err := cat.Search("女儿", 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(found) != 1 || found[0].Song != "女儿情" || found[0].Path != "万晓利-女儿情-国语-流行.mkv" {
+	if found.Total != 1 || len(found.Songs) != 1 || found.Songs[0].Song != "女儿情" || found.Songs[0].Path != "万晓利-女儿情-国语-流行.mkv" {
 		t.Fatalf("song search: %+v", found)
 	}
-	bySinger, err := cat.Search("u2")
+	bySinger, err := cat.Search("u2", 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bySinger) != 1 || bySinger[0].Path != "rock/U2-with or without you-英语-流行.mkv" {
+	if bySinger.Total != 1 || len(bySinger.Songs) != 1 || bySinger.Songs[0].Path != "rock/U2-with or without you-英语-流行.mkv" {
 		t.Fatalf("singer search: %+v", bySinger)
 	}
 
@@ -94,11 +95,44 @@ func TestScanSkipsInvalidAndDuplicates(t *testing.T) {
 	if n != 2 {
 		t.Fatalf("cleared %d", n)
 	}
-	left, err := cat.Search("")
+	left, err := cat.Search("", 20, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(left) != 0 {
+	if left.Total != 0 || len(left.Songs) != 0 {
 		t.Fatalf("expected empty catalog, got %+v", left)
+	}
+}
+
+func TestSearchPage(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 25; i++ {
+		name := filepath.Join(dir, fmt.Sprintf("Singer-Song%02d-国语-流行.mkv", i))
+		if err := os.WriteFile(name, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cat, err := Open(filepath.Join(t.TempDir(), ".data.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cat.Close()
+	if _, err := cat.Scan(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := cat.Search("", 20, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Total != 25 || len(first.Songs) != 20 || first.Offset != 0 {
+		t.Fatalf("first page: total=%d len=%d offset=%d", first.Total, len(first.Songs), first.Offset)
+	}
+	second, err := cat.Search("", 20, 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Total != 25 || len(second.Songs) != 5 || second.Songs[0].Path == first.Songs[0].Path {
+		t.Fatalf("second page: %+v", second)
 	}
 }

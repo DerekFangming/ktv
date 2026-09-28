@@ -89,12 +89,29 @@ func main() {
 	})
 	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("GET /api/videos", func(w http.ResponseWriter, r *http.Request) {
-		list, err := catalog.Search(r.URL.Query().Get("q"))
+		limit, offset := 0, 0
+		if v := r.URL.Query().Get("limit"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid limit"})
+				return
+			}
+			limit = n
+		}
+		if v := r.URL.Query().Get("offset"); v != "" {
+			n, err := strconv.Atoi(v)
+			if err != nil || n < 0 {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid offset"})
+				return
+			}
+			offset = n
+		}
+		page, err := catalog.Search(r.URL.Query().Get("q"), limit, offset)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, list)
+		writeJSON(w, page)
 	})
 	mux.HandleFunc("POST /api/admin/load", func(w http.ResponseWriter, r *http.Request) {
 		result, err := catalog.Scan(videoDir)
@@ -210,10 +227,11 @@ func main() {
 			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
-		cmd := control.Command{Type: "play", File: rel}
+		label := songLabel(catalog, rel)
+		cmd := control.Command{Type: "play", File: rel, Name: label}
 		st := hub.Snapshot()
 		st.File = rel
-		st.Name = songLabel(catalog, rel)
+		st.Name = label
 		st.Paused = true
 		st.Playing = false
 		st.Status = "Starting…"
@@ -278,16 +296,17 @@ func main() {
 	}
 
 	startFile := func(rel string) {
+		label := songLabel(catalog, rel)
 		st := hub.Snapshot()
 		st.File = rel
-		st.Name = songLabel(catalog, rel)
+		st.Name = label
 		st.Paused = true
 		st.Playing = false
 		st.Status = "Starting…"
 		track := 1
 		st.Track = track
 		hub.SetState(st)
-		hub.Broadcast(control.Command{Type: "play", File: rel, Track: &track})
+		hub.Broadcast(control.Command{Type: "play", File: rel, Name: label, Track: &track})
 		hub.BroadcastState()
 	}
 	queueHandler := func(w http.ResponseWriter, r *http.Request) {

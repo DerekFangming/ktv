@@ -1,6 +1,8 @@
 const searchEl = document.getElementById("song-search");
 const listEl = document.getElementById("video-list");
 const listStatus = document.getElementById("list-status");
+const moreBtn = document.getElementById("songs-more");
+const pageSize = 20;
 const queueEl = document.getElementById("queue-list");
 const queueStatus = document.getElementById("queue-status");
 const queueCount = document.getElementById("queue-count");
@@ -161,9 +163,14 @@ function renderSongs(query) {
   listEl.innerHTML = "";
   if (!videos.length) {
     listStatus.textContent = query ? "No matching songs" : "No songs loaded";
+    moreBtn.hidden = true;
     return;
   }
-  listStatus.textContent = `${videos.length} song${videos.length === 1 ? "" : "s"}`;
+  listStatus.textContent =
+    videos.length === songTotal
+      ? `${songTotal} song${songTotal === 1 ? "" : "s"}`
+      : `Showing ${videos.length} of ${songTotal}`;
+  moreBtn.hidden = videos.length >= songTotal;
   videos.forEach((v) => {
     const li = document.createElement("li");
     const title = document.createElement("span");
@@ -184,15 +191,24 @@ function renderSongs(query) {
 }
 
 let searchSeq = 0;
+let songOffset = 0;
+let songTotal = 0;
 
-async function loadList() {
+async function loadList(append = false) {
   const seq = ++searchSeq;
   const query = searchEl.value.trim();
-  listStatus.textContent = "Loading…";
-  const res = await fetch(`/api/videos?q=${encodeURIComponent(query)}`);
+  const offset = append ? songOffset : 0;
+  if (!append) listStatus.textContent = "Loading…";
+  const res = await fetch(
+    `/api/videos?q=${encodeURIComponent(query)}&limit=${pageSize}&offset=${offset}`
+  );
   if (seq !== searchSeq) return;
   if (!res.ok) throw new Error(await res.text());
-  videos = await res.json();
+  const page = await res.json();
+  const songs = Array.isArray(page.songs) ? page.songs : [];
+  songTotal = page.total || 0;
+  videos = append ? videos.concat(songs) : songs;
+  songOffset = videos.length;
   renderSongs(query);
 }
 
@@ -200,10 +216,16 @@ let searchTimer;
 searchEl.addEventListener("input", () => {
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
-    loadList().catch((err) => {
+    loadList(false).catch((err) => {
       listStatus.textContent = err.message;
     });
   }, 200);
+});
+
+moreBtn.addEventListener("click", () => {
+  loadList(true).catch((err) => {
+    listStatus.textContent = err.message;
+  });
 });
 
 async function addSong(video) {
