@@ -286,7 +286,7 @@ video {
 }
 
 .seek-row {
-  margin-top: 8px;
+  padding-top: 16px;
 }
 
 .seek-row .action {
@@ -300,9 +300,9 @@ button.track {
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 8px 14px;
+  padding: 10px 18px;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
 }
 
 button.track.active {

@@ -256,6 +256,10 @@ func startFFmpeg(job *Job, audioCount int) error {
 		args = append(args, "-map", fmt.Sprintf("0:a:%d", i))
 	}
 	args = append(args,
+		// Some files store a nonsense sample aspect ratio (for example 1:9).
+		// Honor a normal ratio by baking it into square pixels, and keep the
+		// coded frame when the ratio is not a real pixel shape.
+		"-vf", "scale=w='if(between(sar,0.5,2),trunc(iw*sar/2)*2,iw)':h=ih:flags=lanczos,setsar=1",
 		"-c:v", "libx264",
 		"-preset", "veryfast",
 		"-crf", "21",
