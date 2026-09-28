@@ -1,10 +1,12 @@
 const loadBtn = document.getElementById("load-btn");
 const clearBtn = document.getElementById("clear-btn");
+const clearCacheBtn = document.getElementById("clear-cache-btn");
 const statusEl = document.getElementById("admin-status");
 
 function setBusy(busy) {
   loadBtn.disabled = busy;
   clearBtn.disabled = busy;
+  clearCacheBtn.disabled = busy;
 }
 
 async function post(path) {
@@ -32,6 +34,21 @@ loadBtn.addEventListener("click", async () => {
   try {
     const result = await post("/api/admin/load");
     statusEl.textContent = describeLoad(result);
+  } catch (err) {
+    statusEl.textContent = err.message;
+  } finally {
+    setBusy(false);
+  }
+});
+
+clearCacheBtn.addEventListener("click", async () => {
+  if (!window.confirm("Delete cached transcodes except the song that is playing?")) return;
+  setBusy(true);
+  statusEl.textContent = "Clearing cache…";
+  try {
+    const result = await post("/api/admin/clear-cache");
+    const kept = result.kept ? " Kept the current song." : "";
+    statusEl.textContent = `Removed ${result.removed} cached song${result.removed === 1 ? "" : "s"}.${kept}`;
   } catch (err) {
     statusEl.textContent = err.message;
   } finally {

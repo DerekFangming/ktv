@@ -16,6 +16,7 @@ type Command struct {
 	File    string      `json:"file,omitempty"`
 	Name    string      `json:"name,omitempty"`
 	Track   *int        `json:"track,omitempty"`
+	Delta   int         `json:"delta,omitempty"`
 	Paused  bool        `json:"paused"`
 	Playing bool        `json:"playing"`
 	Status  string      `json:"status,omitempty"`

@@ -307,6 +307,15 @@ function handlePause() {
   reportState({ paused: true, playing: false });
 }
 
+function handleSeek(cmd) {
+  if (!current || !Number.isInteger(cmd.delta) || cmd.delta === 0) return;
+  const duration = player.duration;
+  let next = (player.currentTime || 0) + cmd.delta;
+  if (next < 0) next = 0;
+  if (Number.isFinite(duration) && next > duration) next = Math.max(0, duration - 0.25);
+  player.currentTime = next;
+}
+
 function handleTrack(cmd) {
   if (!Number.isInteger(cmd.track)) return;
   selectTrack(cmd.track);
@@ -345,6 +354,9 @@ function listenForCommands() {
         break;
       case "track":
         handleTrack(cmd);
+        break;
+      case "seek":
+        handleSeek(cmd);
         break;
       case "idle":
         handleIdle();

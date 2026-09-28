@@ -1,4 +1,5 @@
 const searchEl = document.getElementById("song-search");
+const clearSearchBtn = document.getElementById("search-clear");
 const listEl = document.getElementById("video-list");
 const listStatus = document.getElementById("list-status");
 const moreBtn = document.getElementById("songs-more");
@@ -61,6 +62,9 @@ function applyState(next) {
   const hasFile = Boolean(state.file);
   pauseBtn.disabled = !hasFile || state.paused;
   resumeBtn.disabled = !hasFile || !state.paused;
+  document.querySelectorAll("[data-seek]").forEach((btn) => {
+    btn.disabled = !hasFile;
+  });
   const waiting = state.queue.length;
   queueCount.textContent = waiting ? String(waiting) : "";
   renderQueue();
@@ -212,14 +216,29 @@ async function loadList(append = false) {
   renderSongs(query);
 }
 
+function syncSearchClear() {
+  clearSearchBtn.hidden = searchEl.value.length === 0;
+}
+
 let searchTimer;
 searchEl.addEventListener("input", () => {
+  syncSearchClear();
   clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     loadList(false).catch((err) => {
       listStatus.textContent = err.message;
     });
   }, 200);
+});
+
+clearSearchBtn.addEventListener("click", () => {
+  searchEl.value = "";
+  syncSearchClear();
+  searchEl.focus();
+  clearTimeout(searchTimer);
+  loadList(false).catch((err) => {
+    listStatus.textContent = err.message;
+  });
 });
 
 moreBtn.addEventListener("click", () => {
@@ -275,6 +294,16 @@ nextBtn.addEventListener("click", async () => {
   } catch (err) {
     statusEl.textContent = err.message;
   }
+});
+
+document.querySelectorAll("[data-seek]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    try {
+      await postCommand(`/api/seek?delta=${encodeURIComponent(btn.dataset.seek)}`);
+    } catch (err) {
+      statusEl.textContent = err.message;
+    }
+  });
 });
 
 function listenForState() {

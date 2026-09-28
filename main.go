@@ -130,6 +130,19 @@ func main() {
 		}
 		writeJSON(w, map[string]int64{"cleared": n})
 	})
+	mux.HandleFunc("POST /api/admin/clear-cache", func(w http.ResponseWriter, r *http.Request) {
+		file := hub.Snapshot().File
+		keep := ""
+		if file != "" {
+			keep = cacheID(file)
+		}
+		n, err := mgr.ClearExcept(keep)
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"removed": n, "kept": file})
+	})
 	mux.HandleFunc("GET /api/prepare", func(w http.ResponseWriter, r *http.Request) {
 		rel := r.URL.Query().Get("file")
 		abs, err := resolveVideo(videoDir, rel)
@@ -250,6 +263,23 @@ func main() {
 		hub.Broadcast(cmd)
 		hub.BroadcastState()
 		reply(w, map[string]any{"file": rel})
+	}
+	seekHandler := func(w http.ResponseWriter, r *http.Request) {
+		if hub.Snapshot().File == "" {
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "nothing playing"})
+			return
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("delta")))
+		switch {
+		case err != nil:
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid delta"})
+			return
+		case n != -30 && n != -10 && n != 10 && n != 30:
+			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "invalid delta"})
+			return
+		}
+		hub.Broadcast(control.Command{Type: "seek", Delta: n})
+		reply(w, map[string]any{"delta": n})
 	}
 	pauseHandler := func(w http.ResponseWriter, r *http.Request) {
 		st := hub.Snapshot()
@@ -382,6 +412,8 @@ func main() {
 	mux.HandleFunc("POST /api/queue/top", topHandler)
 	mux.HandleFunc("GET /api/next", nextHandler)
 	mux.HandleFunc("POST /api/next", nextHandler)
+	mux.HandleFunc("GET /api/seek", seekHandler)
+	mux.HandleFunc("POST /api/seek", seekHandler)
 	mux.HandleFunc("GET /api/pause", pauseHandler)
 	mux.HandleFunc("POST /api/pause", pauseHandler)
 	mux.HandleFunc("GET /api/resume", resumeHandler)

@@ -281,6 +281,20 @@ video {
   flex-wrap: wrap;
 }
 
+#next-btn {
+  margin-left: auto;
+}
+
+.seek-row {
+  margin-top: 8px;
+}
+
+.seek-row .action {
+  flex: 1;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
 button.track {
   background: var(--panel-2);
   color: var(--text);
@@ -309,15 +323,46 @@ body.controls-page main {
   padding: 8px 16px 16px;
 }
 
+.search-field {
+  position: relative;
+  margin-top: 8px;
+}
+
 #song-search {
   width: 100%;
-  margin-top: 8px;
-  padding: 12px 14px;
+  padding: 12px 42px 12px 14px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--panel);
   color: var(--text);
   font-size: 1rem;
+}
+
+#song-search::-webkit-search-cancel-button,
+#song-search::-webkit-search-decoration {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+#search-clear {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#search-clear[hidden] {
+  display: none;
 }
 
 .now-bar {
@@ -455,6 +500,7 @@ body.admin-page h1 {
 
 .admin-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 20px;
 }

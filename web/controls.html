@@ -9,7 +9,10 @@
   <body class="controls-page">
     <main>
       <section id="tab-songs" class="tab-panel active" data-tab="songs">
-        <input id="song-search" type="search" placeholder="Search singer or song" autocomplete="off" enterkeyhint="search" />
+        <div class="search-field">
+          <input id="song-search" type="search" placeholder="Search singer or song" autocomplete="off" enterkeyhint="search" />
+          <button id="search-clear" type="button" aria-label="Clear search" hidden>&times;</button>
+        </div>
         <ul id="video-list"></ul>
         <p id="list-status" class="muted"></p>
         <button id="songs-more" class="action" type="button" hidden>More</button>
@@ -30,6 +33,12 @@
             <button id="pause-btn" class="action" type="button" disabled>Pause</button>
             <button id="resume-btn" class="action" type="button" disabled>Resume</button>
             <button id="next-btn" class="action" type="button">Next</button>
+          </div>
+          <div class="track-row seek-row">
+            <button class="action" type="button" data-seek="-30" disabled>−30s</button>
+            <button class="action" type="button" data-seek="-10" disabled>−10s</button>
+            <button class="action" type="button" data-seek="10" disabled>+10s</button>
+            <button class="action" type="button" data-seek="30" disabled>+30s</button>
           </div>
         </section>
         <section class="transport">

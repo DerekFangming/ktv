@@ -110,6 +110,56 @@ func (m *Manager) cleanupCache(maxAge time.Duration) {
 	}
 }
 
+// ClearExcept deletes every cache directory except keepID. An empty keepID
+// removes all of them. A transcode for a removed directory is stopped first.
+func (m *Manager) ClearExcept(keepID string) (int, error) {
+	entries, err := os.ReadDir(m.cacheDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+
+	var remove []string
+	m.mu.Lock()
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		id := entry.Name()
+		if keepID != "" && id == keepID {
+			continue
+		}
+		if job, ok := m.jobs[id]; ok {
+			stopJob(job)
+		}
+		remove = append(remove, id)
+	}
+	m.mu.Unlock()
+
+	removed := 0
+	for _, id := range remove {
+		if err := os.RemoveAll(filepath.Join(m.cacheDir, id)); err != nil {
+			log.Printf("cache clear %s: %v", id, err)
+			continue
+		}
+		m.mu.Lock()
+		delete(m.jobs, id)
+		m.mu.Unlock()
+		removed++
+		log.Printf("removed cache %s", id)
+	}
+	return removed, nil
+}
+
+func stopJob(job *Job) {
+	if job == nil || job.cmd == nil || job.cmd.Process == nil {
+		return
+	}
+	_ = job.cmd.Process.Kill()
+}
+
 func jobInProgress(job *Job) bool {
 	switch job.Status {
 	case StatusStarting, StatusRunning, StatusReady:
