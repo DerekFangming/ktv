@@ -3,6 +3,8 @@ const clearSearchBtn = document.getElementById("search-clear");
 const listEl = document.getElementById("video-list");
 const listStatus = document.getElementById("list-status");
 const moreBtn = document.getElementById("songs-more");
+const youtubeAdd = document.getElementById("youtube-add");
+const youtubeURL = document.getElementById("youtube-url");
 const pageSize = 20;
 const queueEl = document.getElementById("queue-list");
 const queueStatus = document.getElementById("queue-status");
@@ -133,6 +135,13 @@ function trackButtonLabel(index) {
 
 function renderTracks(video) {
   tracksEl.innerHTML = "";
+  if (String(state.file || "").startsWith("youtube:")) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "YouTube videos have one soundtrack.";
+    tracksEl.appendChild(empty);
+    return;
+  }
   const reported = Math.max(state.tracks?.length || 0, video?.audioTracks?.length || 0);
   const count = reported || (state.file ? 2 : 0);
   if (!count) {
@@ -168,8 +177,14 @@ function renderSongs(query) {
   if (!videos.length) {
     listStatus.textContent = query ? "No matching songs" : "No songs loaded";
     moreBtn.hidden = true;
+    const showYouTube = Boolean(query);
+    youtubeAdd.hidden = !showYouTube;
+    if (showYouTube && document.activeElement !== youtubeURL) {
+      youtubeURL.value = /^https?:\/\//i.test(query) ? query : "";
+    }
     return;
   }
+  youtubeAdd.hidden = true;
   listStatus.textContent =
     videos.length === songTotal
       ? `${songTotal} song${songTotal === 1 ? "" : "s"}`
@@ -239,6 +254,23 @@ clearSearchBtn.addEventListener("click", () => {
   loadList(false).catch((err) => {
     listStatus.textContent = err.message;
   });
+});
+
+youtubeAdd.addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const url = youtubeURL.value.trim();
+  if (!url) {
+    listStatus.textContent = "Paste a YouTube URL";
+    return;
+  }
+  try {
+    const result = await postCommand(`/api/queue?url=${encodeURIComponent(url)}`);
+    const label = result.name || "YouTube video";
+    listStatus.textContent = result.started ? `Playing ${label}` : `Added ${label}`;
+    youtubeURL.value = "";
+  } catch (err) {
+    listStatus.textContent = err.message;
+  }
 });
 
 moreBtn.addEventListener("click", () => {

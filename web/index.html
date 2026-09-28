@@ -14,11 +14,13 @@
       </header>
       <div id="stage">
         <video id="player" controls controlsList="nofullscreen" playsinline></video>
+        <div id="yt-slot" class="hidden"></div>
         <div id="fs-caption">
           <p id="fs-title"></p>
           <p id="fs-detail"></p>
         </div>
         <div id="player-tools">
+          <button id="yt-unmute" type="button" hidden>Unmute</button>
           <button id="fs-toggle" type="button">Fullscreen</button>
           <a id="controls-code" href="/controls" title="Scan to open controls">
             <img src="/controls-code.png" alt="QR code for the controls page" width="88" height="88" />

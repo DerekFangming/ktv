@@ -5,9 +5,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -20,6 +22,7 @@ import (
 	"videoplayer/internal/control"
 	"videoplayer/internal/library"
 	"videoplayer/internal/media"
+	"videoplayer/internal/youtube"
 )
 
 //go:embed web/*
@@ -32,7 +35,7 @@ func main() {
 	}
 	videoDir := os.Getenv("VIDEO_DIR")
 	if videoDir == "" {
-		videoDir = "/Users/fangming.ning/Documents/video"
+		videoDir = "C:\\Github\\video\\ktv"
 	}
 	videoDir, err = filepath.Abs(videoDir)
 	if err != nil {
@@ -325,21 +328,48 @@ func main() {
 		writeJSON(w, st)
 	}
 
-	startFile := func(rel string) {
-		label := songLabel(catalog, rel)
+	startNamed := func(rel, name string) {
+		if name == "" {
+			name = songLabel(catalog, rel)
+		}
 		st := hub.Snapshot()
 		st.File = rel
-		st.Name = label
+		st.Name = name
 		st.Paused = true
 		st.Playing = false
 		st.Status = "Starting…"
 		track := 1
+		if _, ok := youtube.ID(rel); ok {
+			track = 0
+			st.Tracks = nil
+		}
 		st.Track = track
 		hub.SetState(st)
-		hub.Broadcast(control.Command{Type: "play", File: rel, Name: label, Track: &track})
+		hub.Broadcast(control.Command{Type: "play", File: rel, Name: name, Track: &track})
 		hub.BroadcastState()
 	}
+	startFile := func(rel string) {
+		startNamed(rel, "")
+	}
 	queueHandler := func(w http.ResponseWriter, r *http.Request) {
+		if raw := strings.TrimSpace(r.URL.Query().Get("url")); raw != "" {
+			id, err := youtube.ParseID(raw)
+			if err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			rel := youtube.File(id)
+			name := songLabel(catalog, rel)
+			if hub.Snapshot().File == "" {
+				startNamed(rel, name)
+				reply(w, map[string]any{"file": rel, "name": name, "started": true})
+				return
+			}
+			item := hub.Enqueue(rel, name)
+			hub.BroadcastState()
+			reply(w, map[string]any{"file": rel, "name": name, "id": item.ID, "started": false})
+			return
+		}
 		rel := r.URL.Query().Get("file")
 		if rel == "" {
 			writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": "missing file query parameter"})
@@ -388,7 +418,7 @@ func main() {
 			reply(w, map[string]any{"idle": true})
 			return
 		}
-		startFile(item.File)
+		startNamed(item.File, item.Name)
 		reply(w, map[string]any{"file": item.File})
 	}
 	mux.HandleFunc("GET /api/play", playHandler)
@@ -435,7 +465,34 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, withCORS(mux)))
 }
 
+func youtubeTitle(id string) string {
+	endpoint := "https://www.youtube.com/oembed?format=json&url=" + url.QueryEscape("https://www.youtube.com/watch?v="+id)
+	client := &http.Client{Timeout: 4 * time.Second}
+	resp, err := client.Get(endpoint)
+	if err != nil {
+		log.Printf("youtube title: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	var body struct {
+		Title string `json:"title"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(body.Title)
+}
+
 func songLabel(catalog *library.Catalog, rel string) string {
+	if id, ok := youtube.ID(rel); ok {
+		if title := youtubeTitle(id); title != "" {
+			return title
+		}
+		return "YouTube video (" + id + ")"
+	}
 	rel = path.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
 	rel = strings.TrimPrefix(rel, "/")
 	if s, ok := catalog.ByPath(rel); ok {

@@ -6,6 +6,12 @@ const stage = document.getElementById("stage");
 const fsTitle = document.getElementById("fs-title");
 const fsDetail = document.getElementById("fs-detail");
 const fsToggle = document.getElementById("fs-toggle");
+const ytSlot = document.getElementById("yt-slot");
+const ytUnmute = document.getElementById("yt-unmute");
+
+let ytPlayer = null;
+let ytAPIPromise = null;
+let ytToken = 0;
 
 let videos = [];
 let current = null;
@@ -22,6 +28,137 @@ function setStatus(text) {
 function setOverlay(show, text) {
   overlay.classList.toggle("hidden", !show);
   if (text) overlayText.textContent = text;
+}
+
+function destroyYouTube() {
+  ytToken += 1;
+  acceptEnd = false;
+  if (ytPlayer && typeof ytPlayer.destroy === "function") {
+    try {
+      ytPlayer.destroy();
+    } catch {
+      // The iframe is already gone.
+    }
+  }
+  ytPlayer = null;
+  ytSlot.replaceChildren();
+  ytSlot.classList.add("hidden");
+  player.classList.remove("yt-hidden");
+  ytUnmute.hidden = true;
+}
+
+function loadYouTubeAPI() {
+  if (window.YT && window.YT.Player) return Promise.resolve();
+  if (!ytAPIPromise) {
+    ytAPIPromise = new Promise((resolve) => {
+      const previous = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        if (typeof previous === "function") previous();
+        resolve();
+      };
+      const script = document.createElement("script");
+      script.src = "https://www.youtube.com/iframe_api";
+      document.head.appendChild(script);
+    });
+  }
+  return ytAPIPromise;
+}
+
+function playYouTube(video) {
+  const videoId = video.videoId || String(video.path).slice("youtube:".length);
+  destroyYouTube();
+  const token = ytToken;
+  destroyHls();
+  current = { path: video.path, name: video.name, videoId, youtube: true, audioTracks: [] };
+  selectedTrack = 0;
+  nowPlaying.textContent = video.name;
+  updateFullscreenCaption();
+  player.classList.add("yt-hidden");
+  ytSlot.classList.remove("hidden");
+  const mount = document.createElement("div");
+  mount.id = "yt-player";
+  ytSlot.appendChild(mount);
+  setOverlay(true, "Opening YouTube…");
+  setStatus("Opening YouTube");
+  reportState({ paused: true, playing: false, tracks: [], status: playbackStatusText });
+
+  return loadYouTubeAPI()
+    .then(
+      () =>
+        new Promise((resolve) => {
+          ytPlayer = new YT.Player("yt-player", {
+            videoId,
+            width: "100%",
+            height: "100%",
+            playerVars: {
+              autoplay: 1,
+              mute: 1,
+              rel: 0,
+              modestbranding: 1,
+              playsinline: 1,
+              origin: location.origin,
+            },
+            events: {
+              onReady: (event) => {
+                if (token !== ytToken) return;
+                const frame = event.target.getIframe?.();
+                if (frame) frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
+                event.target.playVideo();
+                event.target.unMute();
+                event.target.setVolume(100);
+                setOverlay(false);
+                acceptEnd = true;
+                updateFullscreenCaption();
+                window.setTimeout(() => {
+                  if (token !== ytToken) return;
+                  const state = event.target.getPlayerState();
+                  const moving = state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING;
+                  if (!moving || event.target.isMuted()) {
+                    event.target.mute();
+                    event.target.playVideo();
+                    ytUnmute.hidden = false;
+                    setStatus("Streaming muted · click Unmute");
+                  } else {
+                    ytUnmute.hidden = true;
+                    setStatus("Streaming");
+                  }
+                  reportState({ paused: false, playing: true, tracks: [], status: playbackStatusText });
+                }, 400);
+                resolve();
+              },
+              onError: () => {
+                setOverlay(true, "Could not start playback");
+                setStatus("YouTube playback failed");
+                reportState({ paused: true, playing: false, tracks: [] });
+                resolve();
+              },
+              onStateChange: (event) => {
+                if (token !== ytToken || !current?.youtube) return;
+                if (event.data === YT.PlayerState.ENDED) {
+                  if (!acceptEnd) return;
+                  acceptEnd = false;
+                  fetch("/api/next", { method: "POST" }).catch(() => {});
+                  return;
+                }
+                if (event.data === YT.PlayerState.PLAYING) {
+                  const muted = event.target.isMuted?.();
+                  ytUnmute.hidden = !muted;
+                  setStatus(muted ? "Streaming muted · click Unmute" : "Streaming");
+                  reportState({ paused: false, playing: true, tracks: [], status: playbackStatusText });
+                } else if (event.data === YT.PlayerState.PAUSED) {
+                  setStatus("Paused");
+                  reportState({ paused: true, playing: false, tracks: [] });
+                }
+              },
+            },
+          });
+        })
+    )
+    .catch((err) => {
+      setOverlay(true, "Could not start playback");
+      setStatus(err.message);
+      reportState({ paused: true, playing: false, tracks: [] });
+    });
 }
 
 function destroyHls() {
@@ -148,6 +285,16 @@ async function onFullscreenChange() {
 
 document.addEventListener("fullscreenchange", onFullscreenChange);
 document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+ytUnmute.addEventListener("click", () => {
+  if (!ytPlayer || typeof ytPlayer.unMute !== "function") return;
+  ytPlayer.unMute();
+  ytPlayer.setVolume(100);
+  ytPlayer.playVideo();
+  ytUnmute.hidden = true;
+  setStatus("Streaming");
+  reportState({ paused: false, playing: true, tracks: [], status: playbackStatusText });
+});
+
 fsToggle.addEventListener("click", async () => {
   try {
     if (fullscreenElement() === stage) {
@@ -185,6 +332,7 @@ function defaultTrack(video) {
 }
 
 async function playVideo(video, opts = {}) {
+  destroyYouTube();
   current = video;
   selectedTrack = Number.isInteger(opts.track) ? opts.track : defaultTrack(video);
   nowPlaying.textContent = video.name;
@@ -257,6 +405,14 @@ function startPlayback(playlistUrl) {
 }
 
 async function handlePlay(cmd) {
+  if (typeof cmd.file === "string" && cmd.file.startsWith("youtube:")) {
+    if (current?.youtube && current.path === cmd.file && ytPlayer && typeof ytPlayer.playVideo === "function") {
+      ytPlayer.playVideo();
+      return;
+    }
+    await playYouTube({ path: cmd.file, name: cmd.name || cmd.file });
+    return;
+  }
   let video = videos.find((v) => v.path === cmd.file);
   if (!video) {
     try {
@@ -284,6 +440,12 @@ async function handlePlay(cmd) {
 
 async function handleResume() {
   if (!current) return;
+  if (current.youtube && ytPlayer && typeof ytPlayer.playVideo === "function") {
+    ytPlayer.playVideo();
+    setStatus("Streaming");
+    reportState({ paused: false, playing: true, tracks: [] });
+    return;
+  }
   const result = await tryAutoplay();
   setStatus(playbackStatus(result));
   updateFullscreenCaption();
@@ -293,6 +455,7 @@ async function handleResume() {
 function handleIdle() {
   current = null;
   selectedTrack = 0;
+  destroyYouTube();
   destroyHls();
   nowPlaying.textContent = "No song is currently playing. Scan the QR code to pick a song.";
   setStatus("");
@@ -301,6 +464,13 @@ function handleIdle() {
 }
 
 function handlePause() {
+  if (current?.youtube && ytPlayer && typeof ytPlayer.pauseVideo === "function") {
+    ytPlayer.pauseVideo();
+    setStatus("Paused");
+    updateFullscreenCaption();
+    reportState({ paused: true, playing: false, tracks: [] });
+    return;
+  }
   player.pause();
   setStatus(`Paused · ${trackLabel(selectedTrack)}`);
   updateFullscreenCaption();
@@ -309,6 +479,14 @@ function handlePause() {
 
 function handleSeek(cmd) {
   if (!current || !Number.isInteger(cmd.delta) || cmd.delta === 0) return;
+  if (current.youtube && ytPlayer && typeof ytPlayer.getCurrentTime === "function") {
+    let next = ytPlayer.getCurrentTime() + cmd.delta;
+    if (next < 0) next = 0;
+    const duration = ytPlayer.getDuration();
+    if (Number.isFinite(duration) && duration > 0 && next > duration) next = Math.max(0, duration - 0.25);
+    ytPlayer.seekTo(next, true);
+    return;
+  }
   const duration = player.duration;
   let next = (player.currentTime || 0) + cmd.delta;
   if (next < 0) next = 0;
@@ -368,10 +546,10 @@ function listenForCommands() {
 }
 
 player.addEventListener("pause", () => {
-  if (current) reportState({ paused: true, playing: false });
+  if (current && !current.youtube) reportState({ paused: true, playing: false });
 });
 player.addEventListener("play", () => {
-  if (current) reportState({ paused: false, playing: true });
+  if (current && !current.youtube) reportState({ paused: false, playing: true });
 });
 player.addEventListener("ended", () => {
   if (!acceptEnd) return;
