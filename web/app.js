@@ -42,6 +42,17 @@ function trackNames(video) {
   return (video?.audioTracks || []).map((t, i) => t.title || `Track ${i + 1}`);
 }
 
+function playbackTracks() {
+  if (hls && hls.audioTracks && hls.audioTracks.length) {
+    return Array.from(hls.audioTracks).map((t, i) => t.name || `Track ${i + 1}`);
+  }
+  const native = player.audioTracks;
+  if (native && native.length) {
+    return Array.from(native).map((t, i) => t.label || t.language || `Track ${i + 1}`);
+  }
+  return trackNames(current);
+}
+
 function reportState(extra = {}) {
   const body = {
     file: current?.path || "",
@@ -50,7 +61,7 @@ function reportState(extra = {}) {
     paused: player.paused,
     playing: !player.paused && player.readyState > 2,
     status: playbackStatusText,
-    tracks: trackNames(current),
+    tracks: playbackTracks(),
     ...extra,
   };
   fetch("/api/state", {
@@ -220,6 +231,7 @@ function startPlayback(playlistUrl) {
         if (data.audioTracks && data.audioTracks.length) {
           hls.audioTrack = selectedTrack;
         }
+        reportState();
       });
       hls.on(Hls.Events.ERROR, (_, data) => {
         if (!data.fatal) return;
@@ -244,10 +256,17 @@ function startPlayback(playlistUrl) {
 }
 
 async function handlePlay(cmd) {
-  const video = videos.find((v) => v.path === cmd.file);
+  let video = videos.find((v) => v.path === cmd.file);
   if (!video) {
-    setStatus(`Unknown file ${cmd.file}`);
-    return;
+    try {
+      await loadVideos();
+    } catch {
+      // The catalog request failed; fall through and play by path.
+    }
+    video = videos.find((v) => v.path === cmd.file);
+  }
+  if (!video) {
+    video = { path: cmd.file, name: cmd.name || cmd.file, audioTracks: [] };
   }
   const track = Number.isInteger(cmd.track) ? cmd.track : defaultTrack(video);
   if (current && current.path === video.path && player.readyState >= 2) {

@@ -23,14 +23,6 @@ let state = {
   queue: [],
 };
 
-function formatDuration(seconds) {
-  if (!seconds || !isFinite(seconds)) return "";
-  const s = Math.round(seconds);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-
 async function postCommand(path) {
   const res = await fetch(path, { method: "POST" });
   const payload = await res.json().catch(() => ({}));
@@ -52,10 +44,7 @@ function iconButton(src, label) {
 }
 
 function songLine(video) {
-  const dur = formatDuration(video?.duration);
-  return [dur, video ? `${video.width}×${video.height}` : "", video ? `${video.audioTracks.length} tracks` : ""]
-    .filter(Boolean)
-    .join(" · ");
+  return [video?.singer, video?.language, video?.style].filter(Boolean).join(" · ");
 }
 
 function applyState(next) {
@@ -138,7 +127,8 @@ function trackButtonLabel(index) {
 
 function renderTracks(video) {
   tracksEl.innerHTML = "";
-  const count = Math.max(state.tracks?.length || 0, video?.audioTracks?.length || 0);
+  const reported = Math.max(state.tracks?.length || 0, video?.audioTracks?.length || 0);
+  const count = reported || (state.file ? 2 : 0);
   if (!count) {
     const empty = document.createElement("p");
     empty.className = "muted";
@@ -167,29 +157,18 @@ function renderTracks(video) {
   });
 }
 
-function visibleSongs() {
-  const query = searchEl.value.trim().toLowerCase();
-  if (!query) return videos;
-  return videos.filter((v) => v.name.toLowerCase().includes(query));
-}
-
-function renderSongs() {
-  const shown = visibleSongs();
+function renderSongs(query) {
   listEl.innerHTML = "";
   if (!videos.length) {
-    listStatus.textContent = "No MKV files in the video folder";
+    listStatus.textContent = query ? "No matching songs" : "No songs loaded";
     return;
   }
-  if (!shown.length) {
-    listStatus.textContent = "No matching songs";
-    return;
-  }
-  listStatus.textContent = `${shown.length} song${shown.length === 1 ? "" : "s"}`;
-  shown.forEach((v) => {
+  listStatus.textContent = `${videos.length} song${videos.length === 1 ? "" : "s"}`;
+  videos.forEach((v) => {
     const li = document.createElement("li");
     const title = document.createElement("span");
     title.className = "title";
-    title.textContent = v.name;
+    title.textContent = v.song || v.name;
     const sub = document.createElement("span");
     sub.className = "sub";
     sub.textContent = songLine(v);
@@ -204,15 +183,28 @@ function renderSongs() {
   });
 }
 
+let searchSeq = 0;
+
 async function loadList() {
+  const seq = ++searchSeq;
+  const query = searchEl.value.trim();
   listStatus.textContent = "Loading…";
-  const res = await fetch("/api/videos");
+  const res = await fetch(`/api/videos?q=${encodeURIComponent(query)}`);
+  if (seq !== searchSeq) return;
   if (!res.ok) throw new Error(await res.text());
   videos = await res.json();
-  renderSongs();
+  renderSongs(query);
 }
 
-searchEl.addEventListener("input", renderSongs);
+let searchTimer;
+searchEl.addEventListener("input", () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    loadList().catch((err) => {
+      listStatus.textContent = err.message;
+    });
+  }, 200);
+});
 
 async function addSong(video) {
   try {

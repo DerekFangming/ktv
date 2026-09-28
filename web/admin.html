@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Library admin</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body class="admin-page">
+    <main>
+      <h1>Library</h1>
+      <p class="muted">
+        Scan every folder in the video directory. A file is loaded only when its name is
+        Singer-Song-Language-Style.mkv. Files already in the library are left as they are.
+      </p>
+      <div class="admin-actions">
+        <button id="load-btn" class="action" type="button">Load songs</button>
+        <button id="clear-btn" class="action danger" type="button">Clear library</button>
+      </div>
+      <p id="admin-status" class="muted"></p>
+    </main>
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

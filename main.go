@@ -18,6 +18,7 @@ import (
 	"github.com/skip2/go-qrcode"
 
 	"videoplayer/internal/control"
+	"videoplayer/internal/library"
 	"videoplayer/internal/media"
 )
 
@@ -44,6 +45,11 @@ func main() {
 
 	mgr := media.NewManager(cacheDir)
 	mgr.StartCacheCleanup(24*time.Hour, 24*time.Hour)
+	catalog, err := library.Open(filepath.Join(videoDir, ".data.db"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer catalog.Close()
 	hub := control.NewHub()
 	mux := http.NewServeMux()
 
@@ -63,6 +69,9 @@ func main() {
 	mux.HandleFunc("GET /controls", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, webFS, "controls.html")
 	})
+	mux.HandleFunc("GET /admin", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, webFS, "admin.html")
+	})
 	mux.HandleFunc("GET /controls-code.png", func(w http.ResponseWriter, r *http.Request) {
 		scheme := "http"
 		if r.TLS != nil {
@@ -80,12 +89,29 @@ func main() {
 	})
 	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
 	mux.HandleFunc("GET /api/videos", func(w http.ResponseWriter, r *http.Request) {
-		list, err := listVideos(videoDir)
+		list, err := catalog.Search(r.URL.Query().Get("q"))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		writeJSON(w, list)
+	})
+	mux.HandleFunc("POST /api/admin/load", func(w http.ResponseWriter, r *http.Request) {
+		result, err := catalog.Scan(videoDir)
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		log.Printf("library scan: added %d, duplicates %d, invalid %d", result.Added, result.SkippedDuplicate, result.SkippedInvalid)
+		writeJSON(w, result)
+	})
+	mux.HandleFunc("POST /api/admin/clear", func(w http.ResponseWriter, r *http.Request) {
+		n, err := catalog.Clear()
+		if err != nil {
+			writeJSONStatus(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]int64{"cleared": n})
 	})
 	mux.HandleFunc("GET /api/prepare", func(w http.ResponseWriter, r *http.Request) {
 		rel := r.URL.Query().Get("file")
@@ -187,7 +213,7 @@ func main() {
 		cmd := control.Command{Type: "play", File: rel}
 		st := hub.Snapshot()
 		st.File = rel
-		st.Name = path.Base(rel)
+		st.Name = songLabel(catalog, rel)
 		st.Paused = true
 		st.Playing = false
 		st.Status = "Starting…"
@@ -254,7 +280,7 @@ func main() {
 	startFile := func(rel string) {
 		st := hub.Snapshot()
 		st.File = rel
-		st.Name = path.Base(rel)
+		st.Name = songLabel(catalog, rel)
 		st.Paused = true
 		st.Playing = false
 		st.Status = "Starting…"
@@ -279,7 +305,7 @@ func main() {
 			reply(w, map[string]any{"file": rel, "started": true})
 			return
 		}
-		item := hub.Enqueue(rel, path.Base(rel))
+		item := hub.Enqueue(rel, songLabel(catalog, rel))
 		hub.BroadcastState()
 		reply(w, map[string]any{"file": rel, "id": item.ID, "started": false})
 	}
@@ -358,38 +384,13 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, withCORS(mux)))
 }
 
-func listVideos(videoDir string) ([]media.VideoInfo, error) {
-	var out []media.VideoInfo
-	err := filepath.WalkDir(videoDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		if !strings.EqualFold(filepath.Ext(d.Name()), ".mkv") {
-			return nil
-		}
-		rel, err := filepath.Rel(videoDir, p)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		info, err := media.Probe(p, rel)
-		if err != nil {
-			log.Printf("skip %s: %v", rel, err)
-			return nil
-		}
-		out = append(out, info)
-		return nil
-	})
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
+func songLabel(catalog *library.Catalog, rel string) string {
+	rel = path.Clean("/" + strings.ReplaceAll(rel, "\\", "/"))
+	rel = strings.TrimPrefix(rel, "/")
+	if s, ok := catalog.ByPath(rel); ok {
+		return s.Name
 	}
-	if out == nil {
-		out = []media.VideoInfo{}
-	}
-	return out, nil
+	return path.Base(rel)
 }
 
 func resolveVideo(videoDir, rel string) (string, error) {

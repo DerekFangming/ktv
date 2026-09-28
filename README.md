@@ -40,7 +40,9 @@ Keep the player page open; the controls page sends commands to it. Click once on
 
 ## Adding videos
 
-Put `.mkv` files in the `VIDEO_DIR` folder (subfolders work too) and reload the controls page. The first play of each file transcodes it into `.cache/`; later plays reuse that output until it is a day old. A background job runs at startup and then once a day, and deletes cache folders created more than 24 hours earlier. A folder whose transcode is still running is left alone.
+Put `.mkv` files in the `VIDEO_DIR` folder (subfolders work too). Open http://localhost:8080/admin and choose **Load songs**. A file is stored only when its name is `Singer-Song-Language-Style.mkv`. Loading again adds new files and leaves ones already in `.data.db` (in `VIDEO_DIR`) as they are. **Clear library** removes every stored song. The Songs tab searches that database by singer and song name.
+
+The first play of each file transcodes it into `.cache/`; later plays reuse that output until it is a day old. A background job runs at startup and then once a day, and deletes cache folders created more than 24 hours earlier. A folder whose transcode is still running is left alone.
 
 ## HTTP API
 

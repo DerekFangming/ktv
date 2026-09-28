@@ -440,6 +440,26 @@ button.action.icon img {
   outline: 1px solid var(--accent);
 }
 
+body.admin-page main {
+  max-width: 640px;
+}
+
+body.admin-page h1 {
+  margin: 0 0 8px;
+  font-size: 1.5rem;
+}
+
+.admin-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+button.action.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 @media (max-width: 800px) {
   body.player-page main {
     padding: 16px;

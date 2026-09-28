@@ -1,0 +1,7 @@
+.git
+.cache
+.toolchain
+videoplayer
+videos
+**/*.mkv
+.DS_Store
