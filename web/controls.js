@@ -126,8 +126,8 @@ function renderQueue() {
 }
 
 function trackButtonLabel(index) {
-  if (index === 0) return "原唱";
-  if (index === 1) return "伴奏";
+  if (index === 0) return "Original";
+  if (index === 1) return "Instrumental";
   return `Track ${index + 1}`;
 }
 
