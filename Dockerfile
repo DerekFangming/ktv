@@ -27,7 +27,7 @@ WORKDIR /app
 COPY --from=build /out/videoplayer /app/videoplayer
 
 ENV VIDEO_DIR=/videos
-ENV PORT=8080
-EXPOSE 8080
+ENV PORT=9007
+EXPOSE 9007
 
 ENTRYPOINT ["/app/videoplayer"]
