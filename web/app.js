@@ -240,7 +240,7 @@ async function tryAutoplay() {
 }
 
 function fullscreenElement() {
-  return document.fullscreenElement || document.webkitFullscreenElement || null;
+  return document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || null;
 }
 
 function nextSongLine() {
@@ -250,9 +250,11 @@ function nextSongLine() {
 }
 
 function updateFullscreenCaption() {
+  const onStage = fullscreenElement() === stage;
+  stage.classList.toggle("is-fullscreen", onStage);
   fsTitle.textContent = current?.name || nowPlaying.textContent;
   fsDetail.textContent = current ? nextSongLine() : "";
-  fsToggle.textContent = fullscreenElement() === stage ? "Exit fullscreen" : "Fullscreen";
+  fsToggle.textContent = onStage ? "Exit fullscreen" : "Fullscreen";
 }
 
 let movingFullscreen = false;
@@ -271,11 +273,9 @@ async function onFullscreenChange() {
   if (!movingFullscreen && fullscreenElement() === player) {
     movingFullscreen = true;
     try {
-      if (document.exitFullscreen) await document.exitFullscreen();
-      else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
       await enterStageFullscreen();
     } catch {
-      // The browser kept fullscreen on the video element, which cannot show HTML text.
+      // Firefox will not move fullscreen off the video element without a new click.
     } finally {
       movingFullscreen = false;
     }
@@ -285,6 +285,7 @@ async function onFullscreenChange() {
 
 document.addEventListener("fullscreenchange", onFullscreenChange);
 document.addEventListener("webkitfullscreenchange", onFullscreenChange);
+document.addEventListener("mozfullscreenchange", onFullscreenChange);
 ytUnmute.addEventListener("click", () => {
   if (!ytPlayer || typeof ytPlayer.unMute !== "function") return;
   ytPlayer.unMute();
