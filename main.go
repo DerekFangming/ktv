@@ -5,9 +5,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"io/fs"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -377,7 +379,14 @@ func main() {
 				return
 			}
 			rel := youtube.File(id)
-			name := songLabel(catalog, rel)
+			name, err := youtubeLookup(id)
+			if err != nil {
+				writeJSONStatus(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+				return
+			}
+			if name == "" {
+				name = "YouTube video (" + id + ")"
+			}
 			if hub.Snapshot().File == "" {
 				startNamed(rel, name)
 				reply(w, map[string]any{"file": rel, "name": name, "started": true})
@@ -468,6 +477,9 @@ func main() {
 	mux.HandleFunc("POST /api/resume", resumeHandler)
 	mux.HandleFunc("GET /api/track", trackHandler)
 	mux.HandleFunc("POST /api/track", trackHandler)
+	mux.HandleFunc("GET /api/playback-host", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]string{"host": playbackHost()})
+	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, hub.Snapshot())
 	})
@@ -483,25 +495,59 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, withCORS(mux)))
 }
 
+var (
+	errYouTubeNotEmbeddable = errors.New("YouTube does not allow this video to play outside youtube.com. Pick another video.")
+	errYouTubeMissing       = errors.New("this YouTube video is unavailable")
+)
+
+func playbackHost() string {
+	name, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	name = strings.TrimSpace(name)
+	name = strings.TrimSuffix(name, ".local")
+	if name == "" || strings.EqualFold(name, "localhost") || net.ParseIP(name) != nil {
+		return ""
+	}
+	if strings.Contains(name, ".") {
+		return name
+	}
+	return name + ".local"
+}
+
 func youtubeTitle(id string) string {
+	title, _ := youtubeLookup(id)
+	return title
+}
+
+// youtubeLookup asks oEmbed for the title. oEmbed answers 401 when the owner
+// has turned off embedding, which is what the player would fail on later.
+func youtubeLookup(id string) (string, error) {
 	endpoint := "https://www.youtube.com/oembed?format=json&url=" + url.QueryEscape("https://www.youtube.com/watch?v="+id)
 	client := &http.Client{Timeout: 4 * time.Second}
 	resp, err := client.Get(endpoint)
 	if err != nil {
 		log.Printf("youtube title: %v", err)
-		return ""
+		return "", nil
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return ""
+	switch resp.StatusCode {
+	case http.StatusOK:
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return "", errYouTubeNotEmbeddable
+	case http.StatusNotFound, http.StatusBadRequest:
+		return "", errYouTubeMissing
+	default:
+		return "", nil
 	}
 	var body struct {
 		Title string `json:"title"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body); err != nil {
-		return ""
+		return "", nil
 	}
-	return strings.TrimSpace(body.Title)
+	return strings.TrimSpace(body.Title), nil
 }
 
 func songLabel(catalog *library.Catalog, rel string) string {
@@ -611,6 +657,7 @@ func serveHLS(cacheDir string) http.Handler {
 func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		next.ServeHTTP(w, r)
 	})
 }

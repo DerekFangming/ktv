@@ -64,6 +64,58 @@ function loadYouTubeAPI() {
   return ytAPIPromise;
 }
 
+let namedHost = "";
+
+function hostIsIP(host) {
+  return host.includes(":") || /^\d{1,3}(\.\d{1,3}){3}$/.test(host);
+}
+
+function namedPlayerURL() {
+  if (!namedHost) return "";
+  const port = location.port ? `:${location.port}` : "";
+  return `${location.protocol}//${namedHost}${port}/`;
+}
+
+function youtubeErrorMessage(code) {
+  if ((code === 101 || code === 150) && hostIsIP(location.hostname)) {
+    const where = namedPlayerURL();
+    return where
+      ? `YouTube will not play from an IP address. Open ${where}`
+      : "YouTube will not play from an IP address. Open this page by a hostname.";
+  }
+  if (code === 101 || code === 150) return "YouTube does not allow this video to play here";
+  if (code === 100) return "This YouTube video is unavailable";
+  if (code === 153) return "YouTube blocked playback from this page";
+  return "Could not start playback";
+}
+
+async function useNamedHost() {
+  if (!hostIsIP(location.hostname)) return false;
+  let data;
+  try {
+    const res = await fetch("/api/playback-host");
+    if (!res.ok) return false;
+    data = await res.json();
+  } catch {
+    return false;
+  }
+  if (!data.host) return false;
+  namedHost = data.host;
+  const target = namedPlayerURL();
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 1500);
+  try {
+    const probe = await fetch(`${target}api/playback-host`, { signal: ctrl.signal });
+    if (!probe.ok) return false;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+  location.replace(target);
+  return true;
+}
+
 function playYouTube(video) {
   const videoId = video.videoId || String(video.path).slice("youtube:".length);
   destroyYouTube();
@@ -75,34 +127,38 @@ function playYouTube(video) {
   updateFullscreenCaption();
   player.classList.add("yt-hidden");
   ytSlot.classList.remove("hidden");
-  const mount = document.createElement("div");
-  mount.id = "yt-player";
-  ytSlot.appendChild(mount);
   setOverlay(true, "Opening YouTube…");
   setStatus("Opening YouTube");
   reportState({ paused: true, playing: false, tracks: [], status: playbackStatusText });
+
+  // YouTube shows "This video is unavailable" (error 153) when the embed
+  // request has no Referer. Build the iframe first so that policy is set
+  // before the player loads. The IFrame API's own iframe omits it.
+  const params = new URLSearchParams({
+    autoplay: "1",
+    enablejsapi: "1",
+    mute: "1",
+    modestbranding: "1",
+    origin: location.origin,
+    playsinline: "1",
+    rel: "0",
+  });
+  const frame = document.createElement("iframe");
+  frame.id = "yt-player";
+  frame.title = video.name || "YouTube";
+  frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  frame.referrerPolicy = "strict-origin-when-cross-origin";
+  frame.src = "https://www.youtube.com/embed/" + encodeURIComponent(videoId) + "?" + params;
+  ytSlot.appendChild(frame);
 
   return loadYouTubeAPI()
     .then(
       () =>
         new Promise((resolve) => {
-          ytPlayer = new YT.Player("yt-player", {
-            videoId,
-            width: "100%",
-            height: "100%",
-            playerVars: {
-              autoplay: 1,
-              mute: 1,
-              rel: 0,
-              modestbranding: 1,
-              playsinline: 1,
-              origin: location.origin,
-            },
+          ytPlayer = new YT.Player(frame, {
             events: {
               onReady: (event) => {
                 if (token !== ytToken) return;
-                const frame = event.target.getIframe?.();
-                if (frame) frame.setAttribute("allow", "autoplay; encrypted-media; picture-in-picture");
                 event.target.playVideo();
                 event.target.unMute();
                 event.target.setVolume(100);
@@ -126,10 +182,20 @@ function playYouTube(video) {
                 }, 400);
                 resolve();
               },
-              onError: () => {
-                setOverlay(true, "Could not start playback");
-                setStatus("YouTube playback failed");
+              onError: (event) => {
+                if (token !== ytToken) return;
+                const message = youtubeErrorMessage(event.data);
+                ytSlot.classList.add("hidden");
+                setOverlay(true, `${message} · skipping`);
+                setStatus(message);
                 reportState({ paused: true, playing: false, tracks: [] });
+                const blockedIP = (event.data === 101 || event.data === 150) && hostIsIP(location.hostname);
+                if (!blockedIP) {
+                  window.setTimeout(() => {
+                    if (token !== ytToken) return;
+                    fetch("/api/next", { method: "POST" }).catch(() => {});
+                  }, 3000);
+                }
                 resolve();
               },
               onStateChange: (event) => {
@@ -558,16 +624,19 @@ player.addEventListener("ended", () => {
   fetch("/api/next", { method: "POST" }).catch(() => {});
 });
 
-updateFullscreenCaption();
-fetch("/api/state")
-  .then((res) => (res.ok ? res.json() : null))
-  .then((state) => {
-    if (state && Array.isArray(state.queue)) upcoming = state.queue;
+useNamedHost()
+  .then((leaving) => {
+    if (leaving) return;
     updateFullscreenCaption();
+    fetch("/api/state")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((state) => {
+        if (state && Array.isArray(state.queue)) upcoming = state.queue;
+        updateFullscreenCaption();
+      })
+      .catch(() => {});
+    return loadVideos().then(listenForCommands);
   })
-  .catch(() => {});
-loadVideos()
-  .then(listenForCommands)
   .catch((err) => {
     setStatus(err.message);
   });
