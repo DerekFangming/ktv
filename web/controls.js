@@ -5,6 +5,7 @@ const listStatus = document.getElementById("list-status");
 const moreBtn = document.getElementById("songs-more");
 const youtubeAdd = document.getElementById("youtube-add");
 const youtubeURL = document.getElementById("youtube-url");
+const youtubeResults = document.getElementById("youtube-results");
 const pageSize = 20;
 const queueEl = document.getElementById("queue-list");
 const queueStatus = document.getElementById("queue-status");
@@ -172,19 +173,20 @@ function renderTracks(video) {
   });
 }
 
+function hideYouTube() {
+  youtubeAdd.hidden = true;
+  youtubeResults.hidden = true;
+  youtubeResults.innerHTML = "";
+}
+
 function renderSongs(query) {
   listEl.innerHTML = "";
+  hideYouTube();
   if (!videos.length) {
     listStatus.textContent = query ? "No matching songs" : "No songs loaded";
     moreBtn.hidden = true;
-    const showYouTube = Boolean(query);
-    youtubeAdd.hidden = !showYouTube;
-    if (showYouTube && document.activeElement !== youtubeURL) {
-      youtubeURL.value = /^https?:\/\//i.test(query) ? query : "";
-    }
     return;
   }
-  youtubeAdd.hidden = true;
   listStatus.textContent =
     videos.length === songTotal
       ? `${songTotal} song${songTotal === 1 ? "" : "s"}`
@@ -215,6 +217,7 @@ let songTotal = 0;
 
 async function loadList(append = false) {
   const seq = ++searchSeq;
+  clearTimeout(youtubeTimer);
   const query = searchEl.value.trim();
   const offset = append ? songOffset : 0;
   if (!append) listStatus.textContent = "Loading…";
@@ -229,6 +232,99 @@ async function loadList(append = false) {
   videos = append ? videos.concat(songs) : songs;
   songOffset = videos.length;
   renderSongs(query);
+  if (append || !query || videos.length) return;
+  const enabled = await youtubeSearchEnabled();
+  if (seq !== searchSeq) return;
+  if (!enabled) {
+    showYouTubeForm(query);
+    return;
+  }
+  if (query.length < 2) return;
+  clearTimeout(youtubeTimer);
+  youtubeTimer = setTimeout(() => {
+    if (seq !== searchSeq) return;
+    searchYouTube(query, seq).catch((err) => {
+      if (seq !== searchSeq) return;
+      listStatus.textContent = err.message;
+    });
+  }, 500);
+}
+
+let youtubeSearchOn = null;
+
+async function youtubeSearchEnabled() {
+  if (youtubeSearchOn !== null) return youtubeSearchOn;
+  const res = await fetch("/api/youtube/search");
+  const payload = await res.json().catch(() => ({}));
+  youtubeSearchOn = Boolean(res.ok && payload.enabled);
+  return youtubeSearchOn;
+}
+
+function showYouTubeForm(query) {
+  hideYouTube();
+  youtubeAdd.hidden = false;
+  if (document.activeElement !== youtubeURL && /^https?:\/\//i.test(query)) {
+    youtubeURL.value = query;
+  }
+}
+
+let youtubeTimer;
+
+function renderYouTube(videos) {
+  youtubeResults.innerHTML = "";
+  if (!videos.length) {
+    youtubeResults.hidden = true;
+    listStatus.textContent = "No matching songs on YouTube";
+    return;
+  }
+  listStatus.textContent = "YouTube";
+  youtubeResults.hidden = false;
+  videos.forEach((item) => {
+    const li = document.createElement("li");
+    const img = document.createElement("img");
+    img.src = item.thumbnail;
+    img.alt = "";
+    const text = document.createElement("span");
+    const title = document.createElement("span");
+    title.className = "title";
+    title.textContent = item.title;
+    const sub = document.createElement("span");
+    sub.className = "sub";
+    sub.textContent = item.channel || "";
+    text.append(title, sub);
+    li.append(img, text);
+    li.addEventListener("click", () => addYouTube(item));
+    youtubeResults.appendChild(li);
+  });
+}
+
+async function searchYouTube(query, seq) {
+  listStatus.textContent = "Searching YouTube…";
+  const res = await fetch(`/api/youtube/search?q=${encodeURIComponent(query)}`);
+  if (seq !== searchSeq) return;
+  const payload = await res.json().catch(() => ({}));
+  if (seq !== searchSeq) return;
+  if (!res.ok) {
+    youtubeResults.hidden = true;
+    listStatus.textContent = payload.error || "YouTube search failed";
+    return;
+  }
+  if (!payload.enabled) {
+    youtubeSearchOn = false;
+    showYouTubeForm(query);
+    return;
+  }
+  renderYouTube(Array.isArray(payload.videos) ? payload.videos : []);
+}
+
+async function addYouTube(item) {
+  try {
+    const result = await postCommand(`/api/queue?url=${encodeURIComponent(item.id)}`);
+    const label = result.name || item.title;
+    listStatus.textContent = result.started ? `Playing ${label}` : `Added ${label}`;
+  } catch (err) {
+    listStatus.textContent = err.message;
+  }
 }
 
 function syncSearchClear() {
@@ -246,16 +342,6 @@ searchEl.addEventListener("input", () => {
   }, 200);
 });
 
-clearSearchBtn.addEventListener("click", () => {
-  searchEl.value = "";
-  syncSearchClear();
-  searchEl.focus();
-  clearTimeout(searchTimer);
-  loadList(false).catch((err) => {
-    listStatus.textContent = err.message;
-  });
-});
-
 youtubeAdd.addEventListener("submit", async (ev) => {
   ev.preventDefault();
   const url = youtubeURL.value.trim();
@@ -271,6 +357,17 @@ youtubeAdd.addEventListener("submit", async (ev) => {
   } catch (err) {
     listStatus.textContent = err.message;
   }
+});
+
+clearSearchBtn.addEventListener("click", () => {
+  searchEl.value = "";
+  hideYouTube();
+  syncSearchClear();
+  searchEl.focus();
+  clearTimeout(searchTimer);
+  loadList(false).catch((err) => {
+    listStatus.textContent = err.message;
+  });
 });
 
 moreBtn.addEventListener("click", () => {

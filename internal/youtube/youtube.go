@@ -1,10 +1,16 @@
 package youtube
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"html"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const prefix = "youtube:"
@@ -57,4 +63,98 @@ func ParseID(raw string) (string, error) {
 		return "", fmt.Errorf("that YouTube URL has no video id")
 	}
 	return id, nil
+}
+
+type Hit struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Channel   string `json:"channel"`
+	Thumbnail string `json:"thumbnail"`
+}
+
+func Search(ctx context.Context, apiKey, query string) ([]Hit, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return []Hit{}, nil
+	}
+	if strings.TrimSpace(apiKey) == "" {
+		return nil, fmt.Errorf("YouTube search is not configured")
+	}
+	endpoint, err := url.Parse("https://www.googleapis.com/youtube/v3/search")
+	if err != nil {
+		return nil, err
+	}
+	params := endpoint.Query()
+	params.Set("part", "snippet")
+	params.Set("type", "video")
+	params.Set("videoEmbeddable", "true")
+	params.Set("maxResults", "8")
+	params.Set("q", query)
+	params.Set("key", apiKey)
+	endpoint.RawQuery = params.Encode()
+
+	reqCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		var apiErr struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		_ = json.Unmarshal(body, &apiErr)
+		if apiErr.Error.Message != "" {
+			return nil, fmt.Errorf("%s", apiErr.Error.Message)
+		}
+		return nil, fmt.Errorf("YouTube search failed")
+	}
+	var payload struct {
+		Items []struct {
+			ID struct {
+				VideoID string `json:"videoId"`
+			} `json:"id"`
+			Snippet struct {
+				Title      string `json:"title"`
+				Channel    string `json:"channelTitle"`
+				Thumbnails map[string]struct {
+					URL string `json:"url"`
+				} `json:"thumbnails"`
+			} `json:"snippet"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	out := []Hit{}
+	for _, item := range payload.Items {
+		if !idPattern.MatchString(item.ID.VideoID) {
+			continue
+		}
+		thumb := item.Snippet.Thumbnails["medium"].URL
+		if thumb == "" {
+			thumb = item.Snippet.Thumbnails["high"].URL
+		}
+		if thumb == "" {
+			thumb = item.Snippet.Thumbnails["default"].URL
+		}
+		out = append(out, Hit{
+			ID:        item.ID.VideoID,
+			Title:     html.UnescapeString(item.Snippet.Title),
+			Channel:   html.UnescapeString(item.Snippet.Channel),
+			Thumbnail: thumb,
+		})
+	}
+	return out, nil
 }

@@ -91,6 +91,24 @@ func main() {
 		w.Write(png)
 	})
 	mux.Handle("GET /static/", http.StripPrefix("/static/", fileServer))
+	ytKey := strings.TrimSpace(os.Getenv("YOUTUBE_API_KEY"))
+	mux.HandleFunc("GET /api/youtube/search", func(w http.ResponseWriter, r *http.Request) {
+		if ytKey == "" {
+			writeJSON(w, map[string]any{"enabled": false, "videos": []youtube.Hit{}})
+			return
+		}
+		query := strings.TrimSpace(r.URL.Query().Get("q"))
+		if query == "" {
+			writeJSON(w, map[string]any{"enabled": true, "videos": []youtube.Hit{}})
+			return
+		}
+		hits, err := youtube.Search(r.Context(), ytKey, query)
+		if err != nil {
+			writeJSONStatus(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+			return
+		}
+		writeJSON(w, map[string]any{"enabled": true, "videos": hits})
+	})
 	mux.HandleFunc("GET /api/videos", func(w http.ResponseWriter, r *http.Request) {
 		limit, offset := 0, 0
 		if v := r.URL.Query().Get("limit"); v != "" {

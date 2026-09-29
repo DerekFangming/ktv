@@ -107,6 +107,51 @@ button.action:disabled {
   font-size: 1rem;
 }
 
+#youtube-results {
+  list-style: none;
+  margin: 8px 0 16px;
+  padding: 0;
+}
+
+#youtube-results[hidden] {
+  display: none;
+}
+
+#youtube-results li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+#youtube-results li:hover {
+  background: var(--panel-2);
+}
+
+#youtube-results img {
+  width: 120px;
+  height: 68px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: #000;
+  flex: none;
+}
+
+#youtube-results .title {
+  display: block;
+  font-weight: 600;
+}
+
+#youtube-results .sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 #yt-slot {
   position: absolute;
   inset: 0;
